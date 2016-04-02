@@ -1,0 +1,5 @@
+# ignoring local build tree for convenience.
+/fftw-3.3.4.tar.gz
+/fftw-3.3.4
+
+*.pyc
