@@ -84,19 +84,19 @@ class FFTWConan(ConanFile):
         body = "fftw%s" % self.VERSION_MAJOR
         prefix = ""
         suffix_list = [""]
-
-        if self.settings.os == "Windows":
+        osname = str(self.settings.os)
+        if osname == "Windows":
             prefix = ""
             suffix_list = [""]
-        if self.settings.os == "Macos":
+        elif osname == "Macos":
             prefix = "lib"
             suffix_list = [".dylib", "_threads.dylib"] if self.options.static else [".a", "_threads.a"]
         else:
             prefix = "lib"
-            suffix_list = [".so.3"]
+            suffix_list = [".so.%s" % self.VERSION_MINOR]
 
-        libs = []
+        self.cpp_info.libs = []
         for precision in ["", "f", "l"]:
             for suffix in suffix_list:
-                libs += [prefix + body + precision + suffix]
-        self.cpp_info.libs = libs
+            	name = prefix + body + precision + suffix
+                self.cpp_info.libs += [name]
