@@ -2,15 +2,15 @@ from conans import ConanFile, CMake, tools
 import os
 import shutil
 
-class Fftw3Conan(ConanFile):
+class FFTWConan(ConanFile):
     VERSION_MAJOR = 3
     VERSION_MINOR = 3
     VERSION_PATCH = 4
     ZIP_FOLDER_NAME = 'fftw-%s.%s.%s' % (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH)
 
-    name = 'fftw%s' % VERSION_MAJOR
+    name = 'fftw'
     version = '%s.%s.%s' % (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH)
-    url = "https://github.com/kbinani/conan-fftw3"
+    url = "https://github.com/kbinani/conan-fftw"
     settings = "os", "compiler", "build_type", "arch"
     options = {"static": [True, False]}
     default_options = "static=False"
