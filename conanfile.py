@@ -17,7 +17,7 @@ class FFTWConan(ConanFile):
     exports = "CMakeLists.txt", "config.h.cmake", "config.h.cmaketemplate"
 
     def source(self):
-        targzfile = "fftw-%s.tar.gz" % self.version
+        targzfile = '%s.tar.gz' % self.ZIP_FOLDER_NAME
         tools.download("http://www.fftw.org/fftw-%s.tar.gz" % self.version, targzfile)
         tools.check_md5(targzfile, "2edab8c06b24feeb3b82bbb3ebf3e7b3")
         tools.untargz(targzfile)
@@ -31,7 +31,7 @@ class FFTWConan(ConanFile):
         if self.settings.os == "Windows":
             cmake = CMake(self.settings)
 
-            args = ['-DBUILD_SHARED_LIBS=%s' % (self.options.static and 'OFF' or 'ON')]
+            args = ['-DBUILD_SHARED_LIBS=%s' % ('OFF' if self.options.static else 'ON')]
             args += ['-DCMAKE_INSTALL_PREFIX=.']
             self.run('cd %s && cmake . %s %s ' % (self.ZIP_FOLDER_NAME, ' '.join(args), cmake.command_line))
 
@@ -90,10 +90,10 @@ class FFTWConan(ConanFile):
             suffix_list = [""]
         elif osname == "Macos":
             prefix = "lib"
-            suffix_list = [".dylib", "_threads.dylib"] if self.options.static else [".a", "_threads.a"]
+            suffix_list = [".a", "_threads.a"] if self.options.static else [".dylib", "_threads.dylib"]
         else:
             prefix = "lib"
-            suffix_list = [".so.%s" % self.VERSION_MINOR]
+            suffix_list = [".a", "_threads.a"] if self.options.static else [".so", "_threads.so"]
 
         self.cpp_info.libs = []
         for precision in ["", "f", "l"]:
