@@ -1,6 +1,9 @@
-from conans import ConanFile, CMake, tools
+from conans import ConanFile, CMake, tools, ConfigureEnvironment
 import os
 import shutil
+import subprocess
+from glob import glob
+
 
 class FFTWConan(ConanFile):
     VERSION_MAJOR = 3
@@ -14,7 +17,8 @@ class FFTWConan(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
     options = {"static": [True, False]}
     default_options = "static=False"
-    exports = "CMakeLists.txt", "config.h.cmake", "config.h.cmaketemplate"
+    exports = "CMakeLists.txt", "config.h.cmake", "config.h.cmaketemplate", "conanfile.py"
+    generators = "cmake"
 
     def source(self):
         targzfile = '%s.tar.gz' % self.ZIP_FOLDER_NAME
@@ -57,23 +61,48 @@ class FFTWConan(ConanFile):
             else:
                 base_args += ['--enable-debug']
 
+            env = ConfigureEnvironment(self.deps_cpp_info, self.settings)
+
             precision_option = {'single': '--enable-single', 'double': '', 'long double': '--enable-long-double'}
+            suffix = {'single': 'f', 'double': '', 'long double': 'l'}
+
             for precision in ['single', 'double', 'long double']:
                 args = base_args + [precision_option[precision]]
-                self.run('cd %s && ./configure %s' % (self.ZIP_FOLDER_NAME, ' '.join(args)))
-                self.run('cd %s && make -j %s'     % (self.ZIP_FOLDER_NAME, concurrency))
-                self.run('cd %s && make install'   % self.ZIP_FOLDER_NAME)
-                self.run('cd %s && make clean'     % self.ZIP_FOLDER_NAME)
+                self.run('cd %s && %s ./configure %s' % (self.ZIP_FOLDER_NAME, env.command_line, ' '.join(args)))
+                self.run('cd %s && make -j %s'        % (self.ZIP_FOLDER_NAME, concurrency))
+                self.run('cd %s && make install'      % self.ZIP_FOLDER_NAME)
+
+                # Copy 'tests/bench' (or 'tests/.libs/bench') to 'bin/bench{,f,l}'
+                bench_name = 'bench%s' % suffix[precision]
+                bench_dest = os.path.join(self.ZIP_FOLDER_NAME, 'bin', bench_name)
+                bench = os.path.join(self.ZIP_FOLDER_NAME, 'tests', '.libs', 'bench')
+                if not os.path.isfile(bench):
+                    bench = os.path.join(self.ZIP_FOLDER_NAME, 'tests', 'bench')
+                shutil.copyfile(bench, bench_dest)
+
+                self.run('cd %s && make clean' % self.ZIP_FOLDER_NAME)
+
+            self.run('cd %s && chmod +x bin/bench*' % self.ZIP_FOLDER_NAME)
+
+            for binary in glob('%s/bin/*' % prefix) + glob('%s/lib/*.dylib' % prefix):
+                self._change_dylib_names(binary, prefix)
 
     def package(self):
+        osname = str(self.settings.os)
+
         self.copy_headers('*.h', os.path.join(self.ZIP_FOLDER_NAME, 'include'))
-        self.copy('*', 'bin', os.path.join(self.ZIP_FOLDER_NAME, 'bin'), keep_path = False)
+
+        if osname == "Windows":
+            self.copy("bench*.exe", "bin", os.path.join(self.ZIP_FOLDER_NAME, "bin"), keep_path = False)
+            self.copy("fftw*.dll", "bin", os.path.join(self.ZIP_FOLDER_NAME, "bin"), keep_path = False)
+        else:
+            self.copy('bench*', 'bin', os.path.join(self.ZIP_FOLDER_NAME, 'bin'), keep_path = False)
+            self.copy('fftw*-wisdom*', 'bin', os.path.join(self.ZIP_FOLDER_NAME, 'bin'), keep_path = False)
 
         # "'Windows': 'lib'" is for import library files. DLL files are exist in 'bin' directory.
-        shared_lib_extension = {'Windows': 'lib', 'Macos': 'dylib', 'Linux': 'so'}
+        shared_lib_extension = {'Windows': 'lib', 'Macos': 'dylib', 'Linux': 'so*'}
 
         static_lib_extension = {'Windows': 'lib', 'Macos': 'a',     'Linux': 'a'}
-        osname = str(self.settings.os)
 
         if self.options.static:
             self.copy('*.%s' % static_lib_extension[osname], 'lib', os.path.join(self.ZIP_FOLDER_NAME, 'lib'), keep_path = False)
@@ -98,5 +127,25 @@ class FFTWConan(ConanFile):
         self.cpp_info.libs = []
         for precision in ["", "f", "l"]:
             for suffix in suffix_list:
-            	name = prefix + body + precision + suffix
+                name = prefix + body + precision + suffix
                 self.cpp_info.libs += [name]
+
+    def _change_dylib_names(self, file, base_directory):
+        otool = 'otool -L "%s"' % file
+        p = subprocess.Popen(otool, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+        stdout_data, stderr_data = p.communicate()
+        if not base_directory.endswith("/"):
+            base_directory = base_directory + "/"
+        for line in str(stdout_data).splitlines():
+            line = str(line).strip()
+            if line.endswith(":"):
+                continue
+            if not line.startswith(base_directory):
+                continue
+            ext = ".dylib"
+            index = line.rfind(ext)
+            dylib = line[0:index] + ext
+            if dylib == file:
+                continue
+            name = '@executable_path/' + os.path.basename(dylib)
+            subprocess.call(['install_name_tool', '-change', dylib, name, file])
