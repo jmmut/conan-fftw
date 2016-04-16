@@ -13,7 +13,8 @@ class FFTWTestConan(ConanFile):
         self.run("cmake --build . %s" % cmake.build_config)
 
     def imports(self):
-        self.copy("libfftw*.dylib", "lib", "bin")
+        self.copy("libfftw*.dylib", "bin", "lib")
+        self.copy("libfftw*.so.*", "bin", "lib")
         self.copy("fftw*.dll", "bin", "bin")
         self.copy("bench*", "bin", "bin")
 
@@ -29,5 +30,5 @@ class FFTWTestConan(ConanFile):
 
         # Run bench for each precision.
         for precision in ("", "f", "l"):
-        	bench_executable = "%s%s" % (os.path.join(".", "bin", "bench"), precision)
-	        self.run("%s %s 64" % (env, bench_executable))
+            bench_executable = "%s%s" % (os.path.join(".", "bin", "bench"), precision)
+            self.run("%s %s 64" % (env, bench_executable))

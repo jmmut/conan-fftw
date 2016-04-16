@@ -15,8 +15,8 @@ class FFTWConan(ConanFile):
     version = '%s.%s.%s' % (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH)
     url = "https://github.com/kbinani/conan-fftw"
     settings = "os", "compiler", "build_type", "arch"
-    options = {"static": [True, False]}
-    default_options = "static=False"
+    options = {"shared": [True, False]}
+    default_options = "shared=False"
     exports = "CMakeLists.txt", "config.h.cmake", "config.h.cmaketemplate", "conanfile.py"
     generators = "cmake"
 
@@ -35,7 +35,7 @@ class FFTWConan(ConanFile):
         if self.settings.os == "Windows":
             cmake = CMake(self.settings)
 
-            args = ['-DBUILD_SHARED_LIBS=%s' % ('OFF' if self.options.static else 'ON')]
+            args = ['-DBUILD_SHARED_LIBS=%s' % ('ON' if self.options.shared else 'OFF')]
             args += ['-DCMAKE_INSTALL_PREFIX=.']
             self.run('cd %s && cmake . %s %s ' % (self.ZIP_FOLDER_NAME, ' '.join(args), cmake.command_line))
 
@@ -51,10 +51,10 @@ class FFTWConan(ConanFile):
 
             base_args = ['--disable-fortran', '--disable-dependency-tracking', '--enable-threads', '--prefix=%s' % prefix]
             
-            if self.options.static:
-                base_args += ['--disable-shared', '--enable-static']
-            else:
+            if self.options.shared:
                 base_args += ['--enable-shared', '--disable-static']
+            else:
+                base_args += ['--disable-shared', '--enable-static']
 
             if self.settings.build_type == 'Release':
                 base_args += ['--disable-debug']
@@ -85,6 +85,8 @@ class FFTWConan(ConanFile):
             self.run('cd %s && chmod +x bin/bench*' % self.ZIP_FOLDER_NAME)
 
             for binary in glob('%s/bin/*' % prefix) + glob('%s/lib/*.dylib' % prefix):
+                if os.path.islink(binary):
+                    continue
                 self._change_dylib_names(binary, prefix)
 
     def package(self):
@@ -104,10 +106,32 @@ class FFTWConan(ConanFile):
 
         static_lib_extension = {'Windows': 'lib', 'Macos': 'a',     'Linux': 'a'}
 
-        if self.options.static:
-            self.copy('*.%s' % static_lib_extension[osname], 'lib', os.path.join(self.ZIP_FOLDER_NAME, 'lib'), keep_path = False)
+        if self.options.shared:
+            copied_files = self.copy('*.%s' % shared_lib_extension[osname], 'lib', os.path.join(self.ZIP_FOLDER_NAME, 'lib'), keep_path = False)
         else:
-            self.copy('*.%s' % shared_lib_extension[osname], 'lib', os.path.join(self.ZIP_FOLDER_NAME, 'lib'), keep_path = False)
+            copied_files = self.copy('*.%s' % static_lib_extension[osname], 'lib', os.path.join(self.ZIP_FOLDER_NAME, 'lib'), keep_path = False)
+
+        if not osname == "Windows" and len(copied_files) > 0:
+            # Restore symlink under the package directory.
+            # This process is required because self.copy does not keep symlinks.
+            package_id = os.path.basename(os.getcwd())
+            package_directory = copied_files[0].split(os.path.sep) # ~/.conan/data/fftw/3.3.4/#{username}/#{channel}/pacakge/#{package_id}/lib/libfftw3.dylib
+            package_directory.pop() # pop "libfftw3.dylib"
+            package_directory.pop() # pop "lib"
+            package_directory = os.path.sep.join(package_directory) # ~/.conan/data/fftw/3.3.4/#{username}/#{channel}/package/#{package_id}
+            build_directory = os.path.join(os.getcwd(), self.ZIP_FOLDER_NAME) # ~/.conan/data/fftw/3.3.4/#{username}/#{channel}/build/#{package_id}
+            for file in copied_files:
+                relative_path = os.path.relpath(file, package_directory) # lib/libfftw3.dylib
+                source_file = os.path.join(build_directory, relative_path) # ~/.conan/data/fftw/3.3.4/#{username}/#{channel}/build/#{package_id}/fftw-3.3.4/lib/libfftw3.dylib
+                if os.path.islink(source_file):
+                    link_target_path = os.path.realpath(source_file) # ~/.conan/data/fftw/3.3.4/#{username}/#{channel}/build/#{package_id}/fftw-3.3.4/lib/libfftw3.3.dylib
+                    os.unlink(file)
+
+                    source_file_elements = source_file.split(os.path.sep)
+                    source_file_elements.pop() # pop "libfftw3.dylib"
+                    symlink_source = os.path.relpath(link_target_path, os.path.sep.join(source_file_elements)) # libfftw3.3.dylib
+
+                    os.symlink(symlink_source, file)
 
     def package_info(self):
         body = "fftw%s" % self.VERSION_MAJOR
@@ -119,10 +143,10 @@ class FFTWConan(ConanFile):
             suffix_list = [""]
         elif osname == "Macos":
             prefix = "lib"
-            suffix_list = [".a", "_threads.a"] if self.options.static else [".dylib", "_threads.dylib"]
+            suffix_list = [".dylib", "_threads.dylib"] if self.options.shared else [".a", "_threads.a"]
         else:
             prefix = "lib"
-            suffix_list = [".a", "_threads.a"] if self.options.static else [".so", "_threads.so"]
+            suffix_list = [".so", "_threads.so"] if self.options.shared else [".a", "_threads.a"]
 
         self.cpp_info.libs = []
         for precision in ["", "f", "l"]:
@@ -145,7 +169,8 @@ class FFTWConan(ConanFile):
             ext = ".dylib"
             index = line.rfind(ext)
             dylib = line[0:index] + ext
-            if dylib == file:
-                continue
             name = '@executable_path/' + os.path.basename(dylib)
-            subprocess.call(['install_name_tool', '-change', dylib, name, file])
+            if dylib == file:
+                subprocess.call(['install_name_tool', '-id', name, file])
+            else:
+                subprocess.call(['install_name_tool', '-change', dylib, name, file])
