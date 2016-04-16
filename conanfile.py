@@ -19,6 +19,7 @@ class FFTWConan(ConanFile):
     default_options = "shared=False"
     exports = "CMakeLists.txt", "config.h.cmake", "config.h.cmaketemplate", "conanfile.py"
     generators = "cmake"
+    license = "GNU General Public License: http://www.fftw.org/doc/License-and-Copyright.html"
 
     def source(self):
         targzfile = '%s.tar.gz' % self.ZIP_FOLDER_NAME
